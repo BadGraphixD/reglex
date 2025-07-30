@@ -1,0 +1,3 @@
+[submodule "regex2c"]
+	path = regex2c
+	url = git@github.com:BadGraphixD/regex2c.git
