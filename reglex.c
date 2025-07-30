@@ -280,7 +280,18 @@ int main(int argc, char *argv[]) {
   int flags = consume_instructions();
   reg_def_list_t *defs = consume_ref_defs();
   token_action_list_t *actions = consume_token_actions();
-  // TODO: generate lexer
+
+  // gen parse functions for each token
+
+  // gen (master) parse function, which...
+  //   generates new char stack (is cache in between stdin and other parsers)
+  //   calls all other parse functions in order
+  //   if they reject, go to next
+  //   if there is no next -> reject
+  //   if they accept, add match candidate
+  //   if next parser match is longer, overwrite previous candidate
+  //   returns longest match
+
   consume_c(1);
   return EXIT_SUCCESS;
 }
