@@ -2,16 +2,19 @@ CC = gcc
 CFLAGS = -Wall --debug
 
 .PHONY: all test clean
-all: # reglex
+all: lexer
 
-# reglex: reglex.o
-# 	$(CC) $(CFLAGS) $^ -o $@
+lexer: lexer.o
+	$(CC) $(CFLAGS) $^ -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-# regex2c.o: regex2c.c
+lexer.o: lexer.c
+
+lexer.c: lexer.reglex
+	../reglex <lexer.reglex >lexer.c
 
 clean:
-	rm -f *.o # reglex
+	rm -f *.o lexer lexer.c
 

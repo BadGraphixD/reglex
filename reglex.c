@@ -1,9 +1,9 @@
 /**
  * We convert a c-like file, which describes a lexer and contains regular
- * definitions of lexems and code actions, into a pure c-file. The generated
- * c-file either compiles to an executable, which takes a char-stream from
- * stdin, produces a token-stream and performs the code actions attached to the
- * lexems, or can be linked with other code.
+ * definitions of lexems and code actions, into a pure c-file. The
+ * generated c-file either compiles to an executable, which takes a char-stream
+ * from stdin, produces a token-stream and performs the code actions attached to
+ * the lexems, or can be linked with other code.
  *
  * The syntax for the consumed file is as follows:
  *
@@ -41,12 +41,15 @@
  *
  * <regex> %{<code action>%}
  *
- * The regex describes the lexem, and the code action (everything between the
- * special brackets) can be any c code, an is transferred as-is into the
- * resulting c file. Lexems and code actions are separated by whitespace.
+ * The regex describes the lexems, and the code action (everything between
+ * the special brackets) can be any c code, an is transferred as-is into the
+ * resulting c file. lexems and code actions are separated by whitespace.
  */
 
 #include "regex2c/ast.h"
+#include "regex2c/ast2automaton.h"
+#include "regex2c/automaton.h"
+#include "regex2c/automaton2c.h"
 #include "regex2c/common.h"
 #include "regex2c/regex_parser.h"
 
@@ -55,6 +58,103 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define INSTR_EMIT_MAIN 1
+
+const char *lexer_start =
+    "#include <stdio.h>\n"
+    "#include <stdlib.h>\n"
+    "#include <string.h>\n"
+    "\n"
+    "extern void reglex_parse_token();\n"
+    "\n"
+    "typedef struct string {\n"
+    "  char *data;\n"
+    "  size_t length;\n"
+    "} string_t;\n"
+    "\n"
+    "void reglex_append_char_to_str(string_t *string, char c) {\n"
+    "  string->length++;\n"
+    "  string->data = realloc(string->data, (string->length + 1) * "
+    "sizeof(char));\n"
+    "  string->data[string->length - 1] = c;\n"
+    "  string->data[string->length] = 0;\n"
+    "}\n"
+    "\n"
+    "void reglex_append_str_to_str(string_t *dest, string_t *src) {\n"
+    "  if (src->data != NULL) {\n"
+    "    size_t old_len = dest->length;\n"
+    "    dest->length += src->length;\n"
+    "    dest->data = realloc(dest->data, (dest->length + 1) * "
+    "sizeof(char));\n"
+    "    memcpy(&dest->data[old_len], src->data, src->length + 1);\n"
+    "  }\n"
+    "}\n"
+    "\n"
+    "void reglex_clear_str(string_t *string) {\n"
+    "  free(string->data);\n"
+    "  string->data = NULL;\n"
+    "  string->length = 0;\n"
+    "}\n"
+    "\n"
+    "int reglex_checkpoint_tag = -1;\n"
+    "string_t reglex_lexem_str = {.data = NULL, .length = 0};\n"
+    "string_t reglex_read_ahead = {.data = NULL, .length = 0};\n"
+    "int reglex_read_ahead_ptr = 0;\n"
+    "\n"
+    "int reglex_accept(int tag) {\n"
+    "  reglex_checkpoint_tag = tag;\n"
+    "  reglex_append_str_to_str(&reglex_lexem_str, &reglex_read_ahead);\n"
+    "  reglex_clear_str(&reglex_read_ahead);\n"
+    "  return 0;\n"
+    "}\n"
+    "\n"
+    "char *reglex_lexem() { return reglex_lexem_str.data; }\n"
+    "\n"
+    "int reglex_parse_result = -1;"
+    "\n"
+    "void reglex_reject() {\n"
+    "  switch (reglex_checkpoint_tag) {\n";
+
+const char *lexer_end =
+    "  default:\n"
+    "    if (reglex_read_ahead.length == 0) {\n"
+    "      reglex_parse_result = 0;\n"
+    "    }\n"
+    "    reglex_parse_result = 1;\n"
+    "    break;\n"
+    "  }\n"
+    "  reglex_checkpoint_tag = -1;\n"
+    "  reglex_clear_str(&reglex_lexem_str);\n"
+    "  reglex_read_ahead_ptr = reglex_read_ahead.length;\n"
+    "}\n"
+    "\n"
+    "int reglex_next() {\n"
+    "  int c;\n"
+    "  if (reglex_read_ahead_ptr > 0) {\n"
+    "    c = reglex_read_ahead.data[reglex_read_ahead.length - "
+    "reglex_read_ahead_ptr--];\n"
+    "  } else {\n"
+    "    c = fgetc(stdin);\n"
+    "    if (c != EOF) {\n"
+    "      reglex_append_char_to_str(&reglex_read_ahead, c);\n"
+    "    }\n"
+    "  }\n"
+    "  return c;\n"
+    "}\n"
+    "\n"
+    "int reglex_parse() {\n"
+    "  while (reglex_parse_result == -1) {\n"
+    "    reglex_parse_token();\n"
+    "  }\n"
+    "  return reglex_parse_result;\n"
+    "}\n";
+
+const char *lexer_main = "\n"
+                         "int main() {\n"
+                         "  reglex_parse();\n"
+                         "  return 0;\n"
+                         "}\n";
 
 typedef struct reg_def_list {
   struct reg_def_list *next;
@@ -66,6 +166,7 @@ typedef struct token_action_list {
   struct token_action_list *next;
   ast_t token;
   string_t action;
+  int tag;
 } token_action_list_t;
 
 int next_char = EOF;
@@ -76,10 +177,10 @@ int peek_next() { return next_char; }
 
 int consume_next() {
   int c = peek_next();
-  next_char = getc(stdin);
+  next_char = fgetc(stdin);
   if (next_char == EOF) {
     // Do not increment line or col on EOF
-    return EOF;
+    return c;
   }
   if (just_consumed_nl) {
     just_consumed_nl = 0;
@@ -104,7 +205,18 @@ int reject(char *err, ...) {
   errx(EXIT_FAILURE, "%d:%d: %s", ln, col, errf);
 }
 
-ast_t *get_definition(char *name) { return NULL; }
+reg_def_list_t *defs = NULL;
+
+ast_t *get_definition(char *name) {
+  reg_def_list_t *list = defs;
+  while (list != NULL) {
+    if (strcmp(name, list->name.data) == 0) {
+      return &list->ast;
+    }
+    list = list->next;
+  }
+  return NULL;
+}
 
 extern bool_t is_end(int c) {
   switch (c) {
@@ -200,20 +312,19 @@ int consume_instructions() {
       return flags;
     }
     string_t name = consume_name();
-    if (strcmp(name.data, "emit_main")) {
-      flags &= (1 << 0);
+    if (strcmp(name.data, "emit_main") == 0) {
+      flags |= INSTR_EMIT_MAIN;
     } else {
       reject("invalid instruction '%s'", name.data);
     }
   }
 }
 
-reg_def_list_t *consume_ref_defs() {
-  reg_def_list_t *defs = NULL;
+void consume_ref_defs() {
   while (1) {
     consume_whitespace();
     if (try_consume_delimiter()) {
-      return defs;
+      return;
     }
     string_t name = consume_name();
     consume_whitespace();
@@ -238,6 +349,7 @@ string_t consume_action() {
   string_t action = create_string(NULL);
   while (1) {
     switch (peek_next()) {
+    case EOF:
       reject("unexpected EOF");
       break;
     case '%':
@@ -257,6 +369,7 @@ string_t consume_action() {
 }
 
 token_action_list_t *consume_token_actions() {
+  int tag_ctr = 0;
   token_action_list_t *actions = NULL;
   while (1) {
     consume_whitespace();
@@ -270,27 +383,59 @@ token_action_list_t *consume_token_actions() {
     new_action->token = token;
     new_action->next = actions;
     new_action->action = action;
+    new_action->tag = tag_ctr++;
     actions = new_action;
   }
+}
+
+ast_list_t *to_ast_list(token_action_list_t *token_actions) {
+  ast_list_t *ast_list = NULL;
+  while (token_actions != NULL) {
+    ast_list_t *new = malloc(sizeof(ast_list_t));
+    new->next = ast_list;
+    new->ast = &token_actions->token;
+    ast_list = new;
+    token_actions = token_actions->next;
+  }
+  return ast_list;
 }
 
 int main(int argc, char *argv[]) {
   consume_next();
   consume_c(0);
   int flags = consume_instructions();
-  reg_def_list_t *defs = consume_ref_defs();
-  token_action_list_t *actions = consume_token_actions();
+  consume_ref_defs();
+  token_action_list_t *token_actions = consume_token_actions();
 
-  // gen parse functions for each token
+  ast_list_t *tokens = to_ast_list(token_actions);
+  automaton_t automaton = convert_ast_list_to_automaton(tokens);
+  automaton_t dfa = determinize(&automaton);
+  automaton_t mdfa = minimize(&dfa);
 
-  // gen (master) parse function, which...
-  //   generates new char stack (is cache in between stdin and other parsers)
-  //   calls all other parse functions in order
-  //   if they reject, go to next
-  //   if there is no next -> reject
-  //   if they accept, add match candidate
-  //   if next parser match is longer, overwrite previous candidate
-  //   returns longest match
+  if (mdfa.nodes[mdfa.start_index].end_tag != -1) {
+    reject("no token expressions may accept an empty string");
+  }
+
+  print_automaton_to_c_code(mdfa, "reglex_parse_token", "reglex_next",
+                            "reglex_accept", "reglex_reject");
+  /* delete_automaton(automaton); */
+  /* delete_automaton(dfa); */
+  /* delete_automaton(mdfa); */
+
+  printf("%s", lexer_start);
+
+  while (token_actions != NULL) {
+    printf("  case %d:\n", token_actions->tag);
+    printf("    %s\n", token_actions->action.data);
+    printf("    break;\n");
+    token_actions = token_actions->next;
+  }
+
+  printf("%s", lexer_end);
+
+  if (flags & INSTR_EMIT_MAIN) {
+    printf("%s", lexer_main);
+  }
 
   consume_c(1);
   return EXIT_SUCCESS;

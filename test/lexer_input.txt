@@ -1,0 +1,17 @@
+
+
+
+
+def main(my_param: int);
+{
+  var my_var: int = 123;
+  var123
+  123var
+  123name
+  vardef
+}
+
+def my_func();
+
+
+end

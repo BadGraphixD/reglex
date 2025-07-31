@@ -1,0 +1,23 @@
+#include <stdio.h>
+
+%%
+
+emit_main
+
+%%
+
+DIGIT [0-9]
+DIGITS {DIGIT}+
+POINTGROUP {DIGIT}\.|\.{DIGIT}
+INTEGER {DIGITS}
+REAL {DIGITS}?{POINTGROUP}{DIGITS}?
+WHITESPACE [\n\r\t\s]+
+
+%%
+
+{INTEGER} %{ printf("Integer: '%s'\n", reglex_lexem()); %}
+{REAL} %{ printf("Real: '%s'\n", reglex_lexem()); %}
+{WHITESPACE} %{  %}
+
+%%
+

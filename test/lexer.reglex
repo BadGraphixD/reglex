@@ -1,0 +1,31 @@
+#include <stdio.h>
+
+%%
+
+emit_main
+
+%%
+
+DEF def
+VAR var
+NAME [a-zA-Z_][a-zA-Z_0-9]*
+NUMBER [0-9]+
+WHITESPACE [\n\r\t\s]
+
+%%
+
+{DEF} %{ printf("def\n"); %}
+{VAR} %{ printf("var\n"); %}
+{NAME} %{ printf("name: '%s'\n", reglex_lexem()); %}
+{NUMBER} %{ printf("number: '%s'\n", reglex_lexem()); %}
+\( %{ printf("(\n"); %}
+\) %{ printf(")\n"); %}
+: %{ printf(":\n"); %}
+; %{ printf(";\n"); %}
+= %{ printf("=\n"); %}
+\{ %{ printf("{\n"); %}
+\} %{ printf("}\n"); %}
+{WHITESPACE} %{%}
+
+%%
+
