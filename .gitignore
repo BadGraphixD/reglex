@@ -1,2 +1,5 @@
 *.o
 reglex
+
+/test/lexer.c
+/test/lexer

@@ -152,8 +152,7 @@ const char *lexer_end =
 
 const char *lexer_main = "\n"
                          "int main() {\n"
-                         "  reglex_parse();\n"
-                         "  return 0;\n"
+                         "  return reglex_parse();\n"
                          "}\n";
 
 typedef struct reg_def_list {
@@ -168,6 +167,26 @@ typedef struct token_action_list {
   string_t action;
   int tag;
 } token_action_list_t;
+
+void delete_reg_def_list(reg_def_list_t *list) {
+  while (list != NULL) {
+    reg_def_list_t *next = list->next;
+    free(list->name.data);
+    delete_ast(list->ast);
+    free(list);
+    list = next;
+  }
+}
+
+void delete_token_action_list(token_action_list_t *list) {
+  while (list != NULL) {
+    token_action_list_t *next = list->next;
+    delete_ast(list->token);
+    free(list->action.data);
+    free(list);
+    list = next;
+  }
+}
 
 int next_char = EOF;
 int col = 0, ln = 1;
@@ -400,6 +419,14 @@ ast_list_t *to_ast_list(token_action_list_t *token_actions) {
   return ast_list;
 }
 
+void delete_ast_list(ast_list_t *list) {
+  while (list != NULL) {
+    ast_list_t *next = list->next;
+    free(list);
+    list = next;
+  }
+}
+
 int main(int argc, char *argv[]) {
   consume_next();
   consume_c(0);
@@ -418,9 +445,10 @@ int main(int argc, char *argv[]) {
 
   print_automaton_to_c_code(mdfa, "reglex_parse_token", "reglex_next",
                             "reglex_accept", "reglex_reject");
-  /* delete_automaton(automaton); */
-  /* delete_automaton(dfa); */
-  /* delete_automaton(mdfa); */
+
+  delete_automaton(automaton);
+  delete_automaton(dfa);
+  delete_automaton(mdfa);
 
   printf("%s", lexer_start);
 
@@ -430,6 +458,11 @@ int main(int argc, char *argv[]) {
     printf("    break;\n");
     token_actions = token_actions->next;
   }
+
+  delete_ast_list(tokens);
+  delete_token_action_list(token_actions);
+  delete_reg_def_list(defs);
+  defs = NULL;
 
   printf("%s", lexer_end);
 
