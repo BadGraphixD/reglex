@@ -54,5 +54,6 @@ of the string instead of continuing at 'b'.
 
 # reglex instructions
 
-Currently only the instructions `emit_main` exists, which instructs the `reglex` executable to
-generate a `main` function, which calls `reglex_parse()`.
+- `emit_main`: Instruction to generate a `main` function, which calls `reglex_parse()`.
+- `emit_input_fs_var`: Instruction to generate a global variable `FILE *reglex_input_fs`, from which
+  input is read instead of `stdin`. Must be set by external code and can be used to switch files.

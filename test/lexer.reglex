@@ -1,5 +1,8 @@
 #include <stdio.h>
 
+// Instruction to emit reglex_input_fs variable (must be then set by external code):
+// emit_input_fs_var
+
 %%
 
 emit_main

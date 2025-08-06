@@ -26,15 +26,11 @@ clean:
 	cd test && make clean
 	cd regex2c && make clean
 
-$(LTF): $(LT)/start.c $(LT)/end.c $(LT)/main.c
-	echo "static const unsigned char lexer_start[] = {" > $(LTF)
-	xxd -i <$(LT)/start.c >> $(LTF)
-	echo ", 0x0};" >> $(LTF)
-	
-	echo "static const unsigned char lexer_end[] = {" >> $(LTF)
-	xxd -i <$(LT)/end.c >>   $(LTF)
+$(LTF): $(LT)/template.c $(LT)/main.c
+	echo "static const char lexer_template[] = {" > $(LTF)
+	xxd -i <$(LT)/template.c >> $(LTF)
 	echo ", 0x0};" >> $(LTF)
 
-	echo "static const unsigned char lexer_main[] = {" >> $(LTF)
+	echo "static const char lexer_main[] = {" >> $(LTF)
 	xxd -i <$(LT)/main.c >>  $(LTF)
 	echo ", 0x0};" >> $(LTF)

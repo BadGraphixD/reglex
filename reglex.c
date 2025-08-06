@@ -25,6 +25,7 @@
  * The following reglex instructions exist:
  *
  * emit_main
+ * emit_input_fs_var
  *
  * The instructions are separated by whitespace.
  *
@@ -55,6 +56,7 @@
 
 #include <err.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +64,12 @@
 #include "lexer_template/lexer_template.c"
 
 #define INSTR_EMIT_MAIN 1
+#define INSTR_EMIT_INPUT_FS_VAR 2
+
+#define REGLEX_DECLARATIONS "#REGLEX_DECLARATIONS"
+#define REGLEX_TOKEN_ACTIONS "#REGLEX_TOKEN_ACTIONS"
+#define REGLEX_INPUT_FS "#REGLEX_INPUT_FS"
+#define REGLEX_MAIN "#REGLEX_MAIN"
 
 typedef struct reg_def_list {
   struct reg_def_list *next;
@@ -241,6 +249,8 @@ int consume_instructions() {
     string_t name = consume_name();
     if (strcmp(name.data, "emit_main") == 0) {
       flags |= INSTR_EMIT_MAIN;
+    } else if (strcmp(name.data, "emit_input_fs_var") == 0) {
+      flags |= INSTR_EMIT_INPUT_FS_VAR;
     } else {
       reject("invalid instruction '%s'", name.data);
     }
@@ -335,6 +345,22 @@ void delete_ast_list(ast_list_t *list) {
   }
 }
 
+void printsl(const char *str, size_t start, size_t end) {
+  char fstr[20];
+  if (end == -1) {
+    end = strlen(str);
+  }
+  sprintf(fstr, "%%.%lds", end - start);
+  printf(fstr, str + start);
+}
+
+void strstr_bounds(const char *haystack, char *needle, int *before,
+                   int *after) {
+  char *ptr = strstr(haystack, needle);
+  *before = ptr - haystack;
+  *after = *before + strlen(needle);
+}
+
 int main(int argc, char *argv[]) {
   consume_next();
   consume_c(0);
@@ -359,7 +385,26 @@ int main(int argc, char *argv[]) {
   delete_automaton(dfa);
   delete_automaton(mdfa);
 
-  printf("%s", lexer_start);
+  int declarations_before, declarations_after;
+  int token_actions_before, token_actions_after;
+  int input_fs_before, input_fs_after;
+  int main_before, main_after;
+
+  strstr_bounds(lexer_template, REGLEX_DECLARATIONS, &declarations_before,
+                &declarations_after);
+  strstr_bounds(lexer_template, REGLEX_TOKEN_ACTIONS, &token_actions_before,
+                &token_actions_after);
+  strstr_bounds(lexer_template, REGLEX_INPUT_FS, &input_fs_before,
+                &input_fs_after);
+  strstr_bounds(lexer_template, REGLEX_MAIN, &main_before, &main_after);
+
+  printsl(lexer_template, 0, declarations_before);
+
+  if (flags & INSTR_EMIT_INPUT_FS_VAR) {
+    printf("FILE *reglex_input_fs;\n");
+  }
+
+  printsl(lexer_template, declarations_after, token_actions_before);
 
   while (token_actions != NULL) {
     printf("  case %d:\n", token_actions->tag);
@@ -373,7 +418,15 @@ int main(int argc, char *argv[]) {
   delete_reg_def_list(defs);
   defs = NULL;
 
-  printf("%s", lexer_end);
+  printsl(lexer_template, token_actions_after, input_fs_before);
+
+  if (flags & INSTR_EMIT_INPUT_FS_VAR) {
+    printf("reglex_input_fs");
+  } else {
+    printf("stdin");
+  }
+
+  printsl(lexer_template, input_fs_after, main_before);
 
   if (flags & INSTR_EMIT_MAIN) {
     printf("%s", lexer_main);
