@@ -3,3 +3,5 @@ reglex
 
 /test/lexer.c
 /test/lexer
+
+/lexer_template/lexer_template.c

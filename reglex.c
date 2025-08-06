@@ -59,101 +59,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "lexer_template/lexer_template.c"
+
 #define INSTR_EMIT_MAIN 1
-
-const char *lexer_start =
-    "#include <stdio.h>\n"
-    "#include <stdlib.h>\n"
-    "#include <string.h>\n"
-    "\n"
-    "extern void reglex_parse_token();\n"
-    "\n"
-    "typedef struct string {\n"
-    "  char *data;\n"
-    "  size_t length;\n"
-    "} string_t;\n"
-    "\n"
-    "void reglex_append_char_to_str(string_t *string, char c) {\n"
-    "  string->length++;\n"
-    "  string->data = realloc(string->data, (string->length + 1) * "
-    "sizeof(char));\n"
-    "  string->data[string->length - 1] = c;\n"
-    "  string->data[string->length] = 0;\n"
-    "}\n"
-    "\n"
-    "void reglex_append_str_to_str(string_t *dest, string_t *src) {\n"
-    "  if (src->data != NULL) {\n"
-    "    size_t old_len = dest->length;\n"
-    "    dest->length += src->length;\n"
-    "    dest->data = realloc(dest->data, (dest->length + 1) * "
-    "sizeof(char));\n"
-    "    memcpy(&dest->data[old_len], src->data, src->length + 1);\n"
-    "  }\n"
-    "}\n"
-    "\n"
-    "void reglex_clear_str(string_t *string) {\n"
-    "  free(string->data);\n"
-    "  string->data = NULL;\n"
-    "  string->length = 0;\n"
-    "}\n"
-    "\n"
-    "int reglex_checkpoint_tag = -1;\n"
-    "string_t reglex_lexem_str = {.data = NULL, .length = 0};\n"
-    "string_t reglex_read_ahead = {.data = NULL, .length = 0};\n"
-    "int reglex_read_ahead_ptr = 0;\n"
-    "\n"
-    "int reglex_accept(int tag) {\n"
-    "  reglex_checkpoint_tag = tag;\n"
-    "  reglex_append_str_to_str(&reglex_lexem_str, &reglex_read_ahead);\n"
-    "  reglex_clear_str(&reglex_read_ahead);\n"
-    "  return 0;\n"
-    "}\n"
-    "\n"
-    "char *reglex_lexem() { return reglex_lexem_str.data; }\n"
-    "\n"
-    "int reglex_parse_result = -1;"
-    "\n"
-    "void reglex_reject() {\n"
-    "  switch (reglex_checkpoint_tag) {\n";
-
-const char *lexer_end =
-    "  default:\n"
-    "    if (reglex_read_ahead.length == 0) {\n"
-    "      reglex_parse_result = 0;\n"
-    "    }\n"
-    "    reglex_parse_result = 1;\n"
-    "    break;\n"
-    "  }\n"
-    "  reglex_checkpoint_tag = -1;\n"
-    "  reglex_clear_str(&reglex_lexem_str);\n"
-    "  reglex_read_ahead_ptr = reglex_read_ahead.length;\n"
-    "}\n"
-    "\n"
-    "int reglex_next() {\n"
-    "  int c;\n"
-    "  if (reglex_read_ahead_ptr > 0) {\n"
-    "    c = reglex_read_ahead.data[reglex_read_ahead.length - "
-    "reglex_read_ahead_ptr--];\n"
-    "  } else {\n"
-    "    c = fgetc(stdin);\n"
-    "    if (c != EOF) {\n"
-    "      reglex_append_char_to_str(&reglex_read_ahead, c);\n"
-    "    }\n"
-    "  }\n"
-    "  return c;\n"
-    "}\n"
-    "\n"
-    "int reglex_parse() {\n"
-    "  while (reglex_parse_result == -1) {\n"
-    "    reglex_parse_token();\n"
-    "  }\n"
-    "  return reglex_parse_result;\n"
-    "}\n";
-
-const char *lexer_main = "\n"
-                         "int main() {\n"
-                         "  return reglex_parse();\n"
-                         "}\n";
 
 typedef struct reg_def_list {
   struct reg_def_list *next;
@@ -444,7 +352,8 @@ int main(int argc, char *argv[]) {
   }
 
   print_automaton_to_c_code(mdfa, "reglex_parse_token", "reglex_next",
-                            "reglex_accept", "reglex_reject");
+                            "reglex_accept", "reglex_reject",
+                            REGEX2C_ALL_DECL_STATIC);
 
   delete_automaton(automaton);
   delete_automaton(dfa);

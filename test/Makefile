@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall --debug
+CFLAGS = -Wall -O3
 
 .PHONY: all test clean
 all: lexer
