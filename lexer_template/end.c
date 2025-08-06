@@ -1,8 +1,9 @@
   default:
     if (reglex_read_ahead.length == 0) {
       reglex_parse_result = 0;
+    } else {
+      reglex_parse_result = 1;
     }
-    reglex_parse_result = 1;
     break;
   }
   reglex_checkpoint_tag = -1;
