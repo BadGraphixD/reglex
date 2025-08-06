@@ -108,11 +108,26 @@ int next_char = EOF;
 int col = 0, ln = 1;
 bool_t just_consumed_nl = 0;
 
+bool_t has_undo_char = 0;
+int undo_char_ = 0;
+
+void undo_char(int c) {
+  has_undo_char = 1;
+  undo_char_ = next_char;
+  next_char = c;
+  col--; // TODO: if '\n' is undone, line counting breaks
+}
+
 int peek_next() { return next_char; }
 
 int consume_next() {
   int c = peek_next();
-  next_char = fgetc(stdin);
+  if (has_undo_char) {
+    next_char = undo_char_;
+    has_undo_char = 0;
+  } else {
+    next_char = fgetc(stdin);
+  }
   if (next_char == EOF) {
     // Do not increment line or col on EOF
     return c;
@@ -233,7 +248,7 @@ bool_t try_consume_delimiter() {
       consume_next();
       return 1;
     } else {
-      reject("expected '%'");
+      undo_char('%');
     }
   }
   return 0;
@@ -276,11 +291,11 @@ void consume_ref_defs() {
 
 string_t consume_action() {
   if (peek_next() != '%') {
-    reject("expected action (starts with '%{)");
+    reject("expected action (starts with '%%{)");
   }
   consume_next();
   if (peek_next() != '{') {
-    reject("expected action (starts with '%{)");
+    reject("expected action (starts with '%%{)");
   }
   consume_next();
   string_t action = create_string(NULL);

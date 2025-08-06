@@ -1,17 +1,27 @@
-
-
-
-
-def main(my_param: int);
-{
-  var my_var: int = 123;
-  var123
-  123var
-  123name
-  vardef
+int main(int argc, char **argv) {
+  return 1 + (10 << 9 * 0x3) * other_func();
 }
 
-def my_func();
+/* comment 1 */
 
+int other_func() {
+  char *my_string = "my string 132 \"string in string\"";
+  int bin_num = 0b123;
+  int oct_num = 0123;
+  int dec_num = 123;
+  int hex_num = 0xabc;
 
-end
+  int sum = bin_num + oct_num;
+  sum++;
+  sum += dec_num;
+  sum += hex_num;
+  --sum;
+
+  // pointless comment
+  return sum;
+}
+
+/*
+multiline comment
+this should not be merged with comment 1
+*/
