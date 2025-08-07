@@ -1,8 +1,16 @@
 CC = gcc
-CFLAGS = -Wall -O3
+CFLAGS = -Wall -Werror
 
-.PHONY: all test clean
+CDFLAGS = -pg -g
+CRFLAGS = -O3
+
+.PHONY: all debug release
 all: lexer
+
+debug: CFLAGS += $(CDFLAGS)
+debug: lexer
+release: CFLAGS += $(CRFLAGS)
+release: lexer
 
 lexer: lexer.o
 	$(CC) $(CFLAGS) $^ -o $@

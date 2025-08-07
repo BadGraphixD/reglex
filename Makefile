@@ -1,10 +1,22 @@
 CC = gcc
-CFLAGS = -Wall -O3
+CFLAGS = -Wall -Werror
+LIB_TARGET = lib
+
+CDFLAGS = -pg -g
+CRFLAGS = -O3
+
 LT = lexer_template
 LTF = $(LT)/$(LT).c
 
-.PHONY: all test clean
+.PHONY: all debug release test clean
 all: reglex
+
+debug: CFLAGS += $(CDFLAGS)
+debug: LIB_TARGET = lib_debug
+debug: reglex
+release: CFLAGS += $(CRFLAGS)
+release: LIB_TARGET = lib_release
+release: reglex
 
 reglex: reglex.o regex2c/lib.o
 	$(CC) $(CFLAGS) $^ -o $@
@@ -15,22 +27,22 @@ reglex: reglex.o regex2c/lib.o
 reglex.o: reglex.c $(LTF)
 
 regex2c/lib.o:
-	cd regex2c && make lib
+	@cd regex2c && make $(LIB_TARGET)
 
 test: reglex
-	cd test && make
-	echo "test/lexer generated"
+	@cd test && make
+	@echo "test/lexer generated"
 
 clean:
 	rm -f *.o reglex lexer_template/lexer_template.c
-	cd test && make clean
-	cd regex2c && make clean
+	@cd test && make clean
+	@cd regex2c && make clean
 
 $(LTF): $(LT)/template.c $(LT)/main.c
-	echo "static const char lexer_template[] = {" > $(LTF)
-	xxd -i <$(LT)/template.c >> $(LTF)
-	echo ", 0x0};" >> $(LTF)
+	@echo "static const char lexer_template[] = {" > $(LTF)
+	@xxd -i <$(LT)/template.c >> $(LTF)
+	@echo ", 0x0};" >> $(LTF)
 
-	echo "static const char lexer_main[] = {" >> $(LTF)
-	xxd -i <$(LT)/main.c >>  $(LTF)
-	echo ", 0x0};" >> $(LTF)
+	@echo "static const char lexer_main[] = {" >> $(LTF)
+	@xxd -i <$(LT)/main.c >>  $(LTF)
+	@echo ", 0x0};" >> $(LTF)
