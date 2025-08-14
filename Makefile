@@ -18,7 +18,7 @@ release: CFLAGS += $(CRFLAGS)
 release: LIB_TARGET = lib_release
 release: reglex
 
-reglex: reglex.o regex2c/lib.o
+reglex: reglex.o regex2c/lib.o regex2c/not_enough_cli/bin/lib.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 %.o: %.c
@@ -28,6 +28,9 @@ reglex.o: reglex.c $(LTF)
 
 regex2c/lib.o:
 	@cd regex2c && make $(LIB_TARGET)
+
+regex2c/not_enough_cli/bin/lib.o:
+	@cd regex2c/not_enough_cli && make $(LIB_TARGET)
 
 test: reglex
 	@cd test && make

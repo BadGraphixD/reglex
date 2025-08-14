@@ -21,7 +21,7 @@ lexer: lexer.o
 lexer.o: lexer.c
 
 lexer.c: lexer.reglex
-	../reglex <lexer.reglex >lexer.c
+	../reglex lexer.reglex -o lexer.c
 
 clean:
 	rm -f *.o lexer lexer.c

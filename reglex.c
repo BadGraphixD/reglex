@@ -47,6 +47,8 @@
  * resulting c file. lexems and code actions are separated by whitespace.
  */
 
+#include "regex2c/not_enough_cli/not_enough_cli.h"
+
 #include "regex2c/ast.h"
 #include "regex2c/ast2automaton.h"
 #include "regex2c/automaton.h"
@@ -84,7 +86,23 @@ typedef struct token_action_list {
   int tag;
 } token_action_list_t;
 
-void delete_reg_def_list(reg_def_list_t *list) {
+static int next_char = EOF;
+static int col = 0, ln = 1;
+static bool_t just_consumed_nl = 0;
+
+static bool_t has_undo_char = 0;
+static int undo_char_ = 0;
+
+static char **in_files = NULL;
+static int fin_idx = 0;
+static FILE *fin = NULL;
+
+static char *out_file_name = NULL;
+static FILE *out_file = NULL;
+
+static reg_def_list_t *defs = NULL;
+
+static void delete_reg_def_list(reg_def_list_t *list) {
   while (list != NULL) {
     reg_def_list_t *next = list->next;
     free(list->name.data);
@@ -94,7 +112,7 @@ void delete_reg_def_list(reg_def_list_t *list) {
   }
 }
 
-void delete_token_action_list(token_action_list_t *list) {
+static void delete_token_action_list(token_action_list_t *list) {
   while (list != NULL) {
     token_action_list_t *next = list->next;
     delete_ast(list->token);
@@ -104,14 +122,42 @@ void delete_token_action_list(token_action_list_t *list) {
   }
 }
 
-int next_char = EOF;
-int col = 0, ln = 1;
-bool_t just_consumed_nl = 0;
+static void open_next_in_file() {
+  if (fin != NULL) {
+    fclose(fin);
+  }
+  char *next_in_file_name = in_files[fin_idx++];
+  if (next_in_file_name == NULL) {
+    fin = NULL;
+    return;
+  }
+  if (strcmp(next_in_file_name, "-") == 0) {
+    fin = stdin;
+  } else {
+    fin = fopen(next_in_file_name, "r");
+    if (fin == NULL) {
+      errx(EXIT_FAILURE, "Cannot open file \"%s\"\n", next_in_file_name);
+    }
+  }
+}
 
-bool_t has_undo_char = 0;
-int undo_char_ = 0;
+static int get_next_input_char() {
+  if (in_files == NULL) {
+    return getc(stdin);
+  } else {
+    if (fin == NULL) {
+      return EOF;
+    }
+    int next = getc(fin);
+    if (next == EOF) {
+      open_next_in_file();
+      return get_next_input_char();
+    }
+    return next;
+  }
+}
 
-void undo_char(int c) {
+static void undo_char(int c) {
   has_undo_char = 1;
   undo_char_ = next_char;
   next_char = c;
@@ -126,7 +172,7 @@ int consume_next() {
     next_char = undo_char_;
     has_undo_char = 0;
   } else {
-    next_char = fgetc(stdin);
+    next_char = get_next_input_char();
   }
   if (next_char == EOF) {
     // Do not increment line or col on EOF
@@ -155,8 +201,6 @@ int reject(char *err, ...) {
   errx(EXIT_FAILURE, "%d:%d: %s", ln, col, errf);
 }
 
-reg_def_list_t *defs = NULL;
-
 ast_t *get_definition(char *name) {
   reg_def_list_t *list = defs;
   while (list != NULL) {
@@ -168,7 +212,7 @@ ast_t *get_definition(char *name) {
   return NULL;
 }
 
-extern bool_t is_end(int c) {
+bool_t is_end(int c) {
   switch (c) {
   case EOF:
   case '\n':
@@ -182,7 +226,7 @@ extern bool_t is_end(int c) {
   }
 }
 
-void consume_c(bool_t expect_eof) {
+static void consume_c(bool_t expect_eof) {
   while (1) {
     switch (peek_next()) {
     case EOF:
@@ -197,17 +241,17 @@ void consume_c(bool_t expect_eof) {
         consume_next();
         return;
       } else {
-        fputc('%', stdout);
+        fputc('%', out_file);
       }
       break;
     default:
-      fputc(consume_next(), stdout);
+      fputc(consume_next(), out_file);
       break;
     }
   }
 }
 
-void consume_whitespace() {
+static void consume_whitespace() {
   while (1) {
     switch (peek_next()) {
     case '\n':
@@ -222,7 +266,7 @@ void consume_whitespace() {
   }
 }
 
-string_t consume_name() {
+static string_t consume_name() {
   string_t name = create_string(NULL);
   while (1) {
     switch (peek_next()) {
@@ -241,7 +285,7 @@ string_t consume_name() {
   }
 }
 
-bool_t try_consume_delimiter() {
+static bool_t try_consume_delimiter() {
   if (peek_next() == '%') {
     consume_next();
     if (peek_next() == '%') {
@@ -254,7 +298,7 @@ bool_t try_consume_delimiter() {
   return 0;
 }
 
-int consume_instructions() {
+static int consume_instructions() {
   int flags = 0;
   while (1) {
     consume_whitespace();
@@ -272,7 +316,7 @@ int consume_instructions() {
   }
 }
 
-void consume_ref_defs() {
+static void consume_ref_defs() {
   while (1) {
     consume_whitespace();
     if (try_consume_delimiter()) {
@@ -289,7 +333,7 @@ void consume_ref_defs() {
   }
 }
 
-string_t consume_action() {
+static string_t consume_action() {
   if (peek_next() != '%') {
     reject("expected action (starts with '%%{)");
   }
@@ -320,7 +364,7 @@ string_t consume_action() {
   }
 }
 
-token_action_list_t *consume_token_actions() {
+static token_action_list_t *consume_token_actions() {
   int tag_ctr = 0;
   token_action_list_t *actions = NULL;
   while (1) {
@@ -340,7 +384,7 @@ token_action_list_t *consume_token_actions() {
   }
 }
 
-ast_list_t *to_ast_list(token_action_list_t *token_actions) {
+static ast_list_t *to_ast_list(token_action_list_t *token_actions) {
   ast_list_t *ast_list = NULL;
   while (token_actions != NULL) {
     ast_list_t *new = malloc(sizeof(ast_list_t));
@@ -352,7 +396,7 @@ ast_list_t *to_ast_list(token_action_list_t *token_actions) {
   return ast_list;
 }
 
-void delete_ast_list(ast_list_t *list) {
+static void delete_ast_list(ast_list_t *list) {
   while (list != NULL) {
     ast_list_t *next = list->next;
     free(list);
@@ -360,23 +404,101 @@ void delete_ast_list(ast_list_t *list) {
   }
 }
 
-void printsl(const char *str, size_t start, size_t end) {
+static void fprintsl(FILE *fout, const char *str, size_t start, size_t end) {
   char fstr[20];
   if (end == -1) {
     end = strlen(str);
   }
   sprintf(fstr, "%%.%lds", end - start);
-  printf(fstr, str + start);
+  fprintf(fout, fstr, str + start);
 }
 
-void strstr_bounds(const char *haystack, char *needle, int *before,
-                   int *after) {
+static void strstr_bounds(const char *haystack, char *needle, int *before,
+                          int *after) {
   char *ptr = strstr(haystack, needle);
   *before = ptr - haystack;
   *after = *before + strlen(needle);
 }
 
+static struct option OPTIONS_LONG[] = {{"help", no_argument, NULL, 'h'},
+                                       {"version", no_argument, NULL, 'v'},
+                                       {"output", required_argument, NULL, 'o'},
+                                       {NULL, 0, NULL, 0}};
+
+static char *OPTIONS_HELP[] = {
+    ['h'] = "print this help list",
+    ['v'] = "print program version",
+    ['o'] = "set output file name",
+};
+
+_Noreturn static void version() {
+  printf("reglex 1.0\n");
+  exit(EXIT_SUCCESS);
+}
+
+_Noreturn static void usage(int status) {
+  FILE *fout = status == 0 ? stdout : stderr;
+  nac_print_usage_header(fout, "[OPTION]... [FILE]...");
+  fprintf(
+      fout,
+      "Converts c-like lexer specification into a pattern matcher in c.\n\n");
+  fprintf(fout, "With no FILE, or when FILE is -, read standard input.\n\n");
+  nac_print_options(fout);
+  exit(status);
+}
+
+static void handle_option(char opt) {
+  switch (opt) {
+  case 'o':
+    out_file_name = nac_optarg_trimmed();
+    if (out_file_name[0] == '\0') {
+      nac_missing_arg('o');
+    }
+    break;
+  }
+}
+
+static void parse_args(int *argc, char ***argv) {
+  nac_set_opts(**argv, OPTIONS_LONG, OPTIONS_HELP);
+  nac_simple_parse_args(argc, argv, handle_option);
+
+  nac_opt_check_excl("hv");
+  nac_opt_check_max_once("hvo");
+
+  if (nac_get_opt('h')) {
+    usage(*argc > 0 ? EXIT_FAILURE : EXIT_SUCCESS);
+  }
+  if (nac_get_opt('v')) {
+    if (*argc > 0) {
+      usage(EXIT_FAILURE);
+    }
+    version();
+  }
+
+  if (out_file_name == NULL) {
+    out_file = stdout;
+  } else {
+    out_file = fopen(out_file_name, "w");
+    if (out_file == NULL) {
+      errx(EXIT_FAILURE, "Failed to open specified output file \"%s\"\n",
+           out_file_name);
+    }
+  }
+
+  if (*argc > 0) {
+    in_files = malloc(sizeof(char *) * (*argc + 1));
+    for (int i = 0; i < *argc; i++) {
+      in_files[i] = (*argv)[i];
+    }
+    in_files[*argc] = NULL;
+    open_next_in_file();
+  }
+
+  nac_cleanup();
+}
+
 int main(int argc, char *argv[]) {
+  parse_args(&argc, &argv);
   consume_next();
   consume_c(0);
   int flags = consume_instructions();
@@ -394,7 +516,7 @@ int main(int argc, char *argv[]) {
 
   print_automaton_to_c_code(mdfa, "reglex_parse_token", "reglex_next",
                             "reglex_accept", "reglex_reject",
-                            REGEX2C_ALL_DECL_STATIC);
+                            REGEX2C_ALL_DECL_STATIC, out_file);
 
   delete_automaton(automaton);
   delete_automaton(dfa);
@@ -413,18 +535,18 @@ int main(int argc, char *argv[]) {
                 &input_fs_after);
   strstr_bounds(lexer_template, REGLEX_MAIN, &main_before, &main_after);
 
-  printsl(lexer_template, 0, declarations_before);
+  fprintsl(out_file, lexer_template, 0, declarations_before);
 
   if (flags & INSTR_EMIT_INPUT_FS_VAR) {
-    printf("FILE *reglex_input_fs;\n");
+    fprintf(out_file, "FILE *reglex_input_fs;\n");
   }
 
-  printsl(lexer_template, declarations_after, token_actions_before);
+  fprintsl(out_file, lexer_template, declarations_after, token_actions_before);
 
   while (token_actions != NULL) {
-    printf("  case %d:\n", token_actions->tag);
-    printf("    %s\n", token_actions->action.data);
-    printf("    break;\n");
+    fprintf(out_file, "  case %d:\n", token_actions->tag);
+    fprintf(out_file, "    %s\n", token_actions->action.data);
+    fprintf(out_file, "    break;\n");
     token_actions = token_actions->next;
   }
 
@@ -433,18 +555,18 @@ int main(int argc, char *argv[]) {
   delete_reg_def_list(defs);
   defs = NULL;
 
-  printsl(lexer_template, token_actions_after, input_fs_before);
+  fprintsl(out_file, lexer_template, token_actions_after, input_fs_before);
 
   if (flags & INSTR_EMIT_INPUT_FS_VAR) {
-    printf("reglex_input_fs");
+    fprintf(out_file, "reglex_input_fs");
   } else {
-    printf("stdin");
+    fprintf(out_file, "stdin");
   }
 
-  printsl(lexer_template, input_fs_after, main_before);
+  fprintsl(out_file, lexer_template, input_fs_after, main_before);
 
   if (flags & INSTR_EMIT_MAIN) {
-    printf("%s", lexer_main);
+    fprintf(out_file, "%s", lexer_main);
   }
 
   consume_c(1);
