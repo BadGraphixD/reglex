@@ -101,6 +101,8 @@ COMMENT {MULTILINE_COMMENT}|{SINGLE_LINE_COMMENT}
 
 %%
 
+%{ normal_parser %}
+
 {BIN_LIT} %{ printf("binary int literal: '%s'\n", reglex_lexem()); %}
 {OCT_LIT} %{ printf("octal int literal: '%s'\n", reglex_lexem()); %}
 {DEC_LIT} %{ printf("decimal int literal: '%s'\n", reglex_lexem()); %}
@@ -109,12 +111,18 @@ COMMENT {MULTILINE_COMMENT}|{SINGLE_LINE_COMMENT}
 {STR_LIT} %{ printf("string literal: '%s'\n", reglex_lexem()); %}
 {CHAR_LIT} %{ printf("char literal: '%s'\n", reglex_lexem()); %}
 {NAME} %{ printf("name: '%s'\n", reglex_lexem()); %}
-
-\(|\)|\[|\]|\{|\}|:|;|,|\?|=|!|%|&|\||/|\-|\+|\*|~|\^|<|=|&=|\|=|/=|\-=|\+=|\*=|~=|\^=|<<=|=|&&|\|\||\+\+|\-\-|<<|==|!=|<=|= %{ print_lexem(); %}
-
+\(|\)|\[|\]|\{|\}|:|;|,|\?|=|!|%|&|\||/|\-|\+|\*|~|\^|<|>|=|&=|\|=|/=|\-=|\+=|\*=|~=|\^=|<<=|=|&&|\|\||\+\+|\-\-|<<|==|!=|<=|= %{ print_lexem(); %}
 {WHITESPACE}|{COMMENT} %{%}
+. %{ fprintf(stderr, "Illegal character encountered in code: '%s'", reglex_lexem()); exit(1); %}
+<html> %{ reglex_switch_parser("simple_html_parser"); printf("Switching to html\n"); %}
 
-. %{ fprintf(stderr, "Illegal character encountered: '%s'", reglex_lexem()); exit(1); %}
+%{ simple_html_parser %}
+
+<html\\> %{ reglex_switch_parser("normal_parser"); printf("Switching to code\n"); %}
+<{NAME}> %{ printf("Opening tag: '%s'\n", reglex_lexem()); %}
+<{NAME}\\> %{ printf("Closing tag: '%s'\n", reglex_lexem()); %}
+([^<]|\\<)+ %{ printf("Text: '%s'\n", reglex_lexem()); %}
+. %{ fprintf(stderr, "Illegal character encountered in html: '%s'", reglex_lexem()); exit(1); %}
 
 %%
 

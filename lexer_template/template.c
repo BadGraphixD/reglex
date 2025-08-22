@@ -4,8 +4,6 @@
 
 #REGLEX_DECLARATIONS
 
-extern void reglex_parse_token();
-
 typedef struct string {
   char *data;
   size_t length;
@@ -45,25 +43,18 @@ int reglex_accept(int tag) {
   return 0;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+
+#REGLEX_PARSER_SWITCHING
+
 static char *reglex_lexem() { return reglex_lexem_str.data; }
+
+#pragma GCC diagnostic pop
 
 static int reglex_parse_result = -1;
 
-void reglex_reject() {
-  switch (reglex_checkpoint_tag) {
-#REGLEX_TOKEN_ACTIONS
-  default:
-    if (reglex_read_ahead.length == 0) {
-      reglex_parse_result = 0;
-    } else {
-      reglex_parse_result = 1;
-    }
-    break;
-  }
-  reglex_checkpoint_tag = -1;
-  reglex_clear_str(&reglex_lexem_str);
-  reglex_read_ahead_ptr = reglex_read_ahead.length;
-}
+#REGLEX_REJECT_FUNCTIONS
 
 int reglex_next() {
   int c;
@@ -83,7 +74,7 @@ int reglex_next() {
 
 int reglex_parse() {
   while (reglex_parse_result == -1) {
-    reglex_parse_token();
+    reglex_token_parser_fn();
   }
   return reglex_parse_result;
 }

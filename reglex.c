@@ -69,7 +69,8 @@
 #define INSTR_EMIT_INPUT_FS_VAR 2
 
 #define REGLEX_DECLARATIONS "#REGLEX_DECLARATIONS"
-#define REGLEX_TOKEN_ACTIONS "#REGLEX_TOKEN_ACTIONS"
+#define REGLEX_PARSER_SWITCHING "#REGLEX_PARSER_SWITCHING"
+#define REGLEX_REJECT_FUNCTIONS "#REGLEX_REJECT_FUNCTIONS"
 #define REGLEX_INPUT_FS "#REGLEX_INPUT_FS"
 #define REGLEX_MAIN "#REGLEX_MAIN"
 
@@ -85,6 +86,16 @@ typedef struct token_action_list {
   string_t action;
   int tag;
 } token_action_list_t;
+
+typedef struct parser_spec {
+  struct parser_spec *next;
+  token_action_list_t *tal;
+  ast_list_t *ast_list;
+  string_t name;
+  string_t unique_name;
+  bool_t is_default;
+  int idx;
+} parser_spec_t;
 
 static int next_char = EOF;
 static int col = 0, ln = 1;
@@ -251,18 +262,21 @@ static void consume_c(bool_t expect_eof) {
   }
 }
 
+static bool_t next_is_whitespace() {
+  switch (peek_next()) {
+  case '\n':
+  case '\r':
+  case '\t':
+  case ' ':
+    return 1;
+  default:
+    return 0;
+  }
+}
+
 static void consume_whitespace() {
-  while (1) {
-    switch (peek_next()) {
-    case '\n':
-    case '\r':
-    case '\t':
-    case ' ':
-      consume_next();
-      break;
-    default:
-      return;
-    }
+  while (next_is_whitespace()) {
+    consume_next();
   }
 }
 
@@ -278,7 +292,7 @@ static string_t consume_name() {
       break;
     default:
       if (name.length <= 0) {
-        reject("expected regular definition name");
+        reject("expected name");
       }
       return name;
     }
@@ -289,6 +303,43 @@ static bool_t try_consume_delimiter() {
   if (peek_next() == '%') {
     consume_next();
     if (peek_next() == '%') {
+      consume_next();
+      return 1;
+    } else {
+      undo_char('%');
+    }
+  }
+  return 0;
+}
+
+static bool_t next_is_parser_name() {
+  if (peek_next() == '%') {
+    consume_next();
+    if (peek_next() == '{') {
+      undo_char('%');
+      return 1;
+    } else {
+      undo_char('%');
+    }
+  }
+  return 0;
+}
+
+static bool_t try_consume_parser_name(string_t *name) {
+  if (peek_next() == '%') {
+    consume_next();
+    if (peek_next() == '{') {
+      consume_next();
+      consume_whitespace();
+      *name = consume_name();
+      consume_whitespace();
+      if (peek_next() != '%') {
+        reject("expected '%}' after parser name");
+      }
+      consume_next();
+      if (peek_next() != '}') {
+        reject("expected '%}' after parser name");
+      }
       consume_next();
       return 1;
     } else {
@@ -364,23 +415,34 @@ static string_t consume_action() {
   }
 }
 
-static token_action_list_t *consume_token_actions() {
+static bool_t consume_token_actions(token_action_list_t **list, string_t *name,
+                                    bool_t *found_name) {
   int tag_ctr = 0;
-  token_action_list_t *actions = NULL;
+  *found_name = 0;
+  *list = NULL;
+
+  consume_whitespace();
+  if (try_consume_parser_name(name)) {
+    *found_name = 1;
+  }
+
   while (1) {
     consume_whitespace();
     if (try_consume_delimiter()) {
-      return actions;
+      return 0;
+    }
+    if (next_is_parser_name()) {
+      return 1;
     }
     ast_t token = consume_regex_expr();
     consume_whitespace();
     string_t action = consume_action();
     token_action_list_t *new_action = malloc(sizeof(token_action_list_t));
     new_action->token = token;
-    new_action->next = actions;
+    new_action->next = *list;
     new_action->action = action;
     new_action->tag = tag_ctr++;
-    actions = new_action;
+    *list = new_action;
   }
 }
 
@@ -396,11 +458,84 @@ static ast_list_t *to_ast_list(token_action_list_t *token_actions) {
   return ast_list;
 }
 
+static string_t get_unique_default_name(parser_spec_t *specs) {
+  while (specs != NULL) {
+    if (specs->is_default) {
+      return specs->unique_name;
+    }
+    specs = specs->next;
+  }
+  errx(EXIT_FAILURE,
+       "internal error: parser specs do not contain a default spec");
+}
+
+static void print_parser_switching(parser_spec_t *specs) {
+  bool_t is_first = 1;
+  fprintf(out_file,
+          "static void (*reglex_token_parser_fn)() = reglex_parse_token_%s;\n",
+          get_unique_default_name(specs).data);
+  fprintf(out_file,
+          "static void reglex_switch_parser(const char *parser_name) {\n");
+  while (specs != NULL) {
+    fprintf(out_file,
+            " %s (strcmp(parser_name, \"%s\") == 0) {\n"
+            "    reglex_token_parser_fn = reglex_parse_token_%s;\n"
+            "  }",
+            is_first ? " if" : "else if", specs->name.data,
+            specs->unique_name.data);
+    specs = specs->next;
+    is_first = 0;
+  }
+  fprintf(out_file, "}\n");
+}
+
+static void print_token_actions(token_action_list_t *token_actions) {
+  while (token_actions != NULL) {
+    fprintf(out_file, "  case %d:\n", token_actions->tag);
+    fprintf(out_file, "    %s\n", token_actions->action.data);
+    fprintf(out_file, "    break;\n");
+    token_actions = token_actions->next;
+  }
+}
+
+static void print_reject_functions(parser_spec_t *specs) {
+  while (specs != NULL) {
+    fprintf(out_file,
+            "void reglex_reject_%s() {\n  switch (reglex_checkpoint_tag) {\n",
+            specs->unique_name.data);
+    print_token_actions(specs->tal);
+    fprintf(out_file, "  default:\n"
+                      "    if (reglex_read_ahead.length == 0) {\n"
+                      "      reglex_parse_result = 0;\n"
+                      "    } else {\n"
+                      "      reglex_parse_result = 1;\n"
+                      "    }\n"
+                      "    break;\n"
+                      "  }\n"
+                      "  reglex_checkpoint_tag = -1;\n"
+                      "  reglex_clear_str(&reglex_lexem_str);\n"
+                      "  reglex_read_ahead_ptr = reglex_read_ahead.length;\n"
+                      "}\n");
+    specs = specs->next;
+  }
+}
+
 static void delete_ast_list(ast_list_t *list) {
   while (list != NULL) {
     ast_list_t *next = list->next;
     free(list);
     list = next;
+  }
+}
+
+static void delete_parser_specs(parser_spec_t *specs) {
+  while (specs != NULL) {
+    parser_spec_t *next = specs->next;
+    delete_token_action_list(specs->tal);
+    delete_ast_list(specs->ast_list);
+    free(specs->name.data);
+    free(specs);
+    specs = next;
   }
 }
 
@@ -503,34 +638,79 @@ int main(int argc, char *argv[]) {
   consume_c(0);
   int flags = consume_instructions();
   consume_ref_defs();
-  token_action_list_t *token_actions = consume_token_actions();
 
-  ast_list_t *tokens = to_ast_list(token_actions);
-  automaton_t automaton = convert_ast_list_to_automaton(tokens);
-  automaton_t dfa = determinize(&automaton);
-  automaton_t mdfa = minimize(&dfa);
+  parser_spec_t *parser_specs = NULL;
 
-  if (mdfa.nodes[mdfa.start_index].end_tag != -1) {
-    reject("no token expressions may accept an empty string");
-  }
+  // TODO: Something causes serious errors when more than one parser is used
+  //  one parser currently works fine, but adding a second one somehow causes
+  //  both return code 1 (cannot parse input) or a segfault (return code 130)
+  //  Maybe something with the read_ahead stuff???
+  //  At least in principal it works now
+  int parser_idx = 0;
+  bool_t c;
+  do {
+    parser_spec_t *next_specs = malloc(sizeof(parser_spec_t));
+    next_specs->next = parser_specs;
+    next_specs->is_default = parser_idx == 0;
+    next_specs->idx = parser_idx;
+    parser_specs = next_specs;
+    bool_t is_named = 0;
+    c = consume_token_actions(&parser_specs->tal, &parser_specs->name,
+                              &is_named);
 
-  print_automaton_to_c_code(mdfa, "reglex_parse_token", "reglex_next",
-                            "reglex_accept", "reglex_reject",
-                            REGEX2C_ALL_DECL_STATIC, out_file);
+    // Ensure each parser has a unique name
+    if (is_named) {
+      parser_specs->unique_name = create_string(parser_specs->name.data);
+      append_str_to_str(&parser_specs->unique_name, "_named");
+    } else {
+      parser_specs->unique_name.length =
+          asprintf(&parser_specs->unique_name.data, "unnamed_%d", parser_idx);
+    }
+    parser_specs->ast_list = to_ast_list(parser_specs->tal);
 
-  delete_automaton(automaton);
-  delete_automaton(dfa);
-  delete_automaton(mdfa);
+    automaton_t automaton =
+        convert_ast_list_to_automaton(parser_specs->ast_list);
+    automaton_t dfa = determinize(&automaton);
+    automaton_t mdfa = minimize(&dfa);
+
+    if (mdfa.nodes[mdfa.start_index].end_tag != -1) {
+      reject("no token expressions may accept an empty string");
+    }
+
+    // First parser is always named "default"
+    char *parse_token_fn_name;
+    asprintf(&parse_token_fn_name, "reglex_parse_token_%s",
+             parser_specs->unique_name.data);
+    char *reject_fn_name;
+    asprintf(&reject_fn_name, "reglex_reject_%s",
+             parser_specs->unique_name.data);
+
+    print_automaton_to_c_code(mdfa, parse_token_fn_name, "reglex_next",
+                              "reglex_accept", reject_fn_name,
+                              REGEX2C_ALL_DECL_STATIC, out_file);
+
+    free(parse_token_fn_name);
+    free(reject_fn_name);
+
+    delete_automaton(automaton);
+    delete_automaton(dfa);
+    delete_automaton(mdfa);
+
+    parser_idx++;
+  } while (c);
 
   int declarations_before, declarations_after;
-  int token_actions_before, token_actions_after;
+  int switching_before, switching_after;
+  int reject_functions_before, reject_functions_after;
   int input_fs_before, input_fs_after;
   int main_before, main_after;
 
   strstr_bounds(lexer_template, REGLEX_DECLARATIONS, &declarations_before,
                 &declarations_after);
-  strstr_bounds(lexer_template, REGLEX_TOKEN_ACTIONS, &token_actions_before,
-                &token_actions_after);
+  strstr_bounds(lexer_template, REGLEX_PARSER_SWITCHING, &switching_before,
+                &switching_after);
+  strstr_bounds(lexer_template, REGLEX_REJECT_FUNCTIONS,
+                &reject_functions_before, &reject_functions_after);
   strstr_bounds(lexer_template, REGLEX_INPUT_FS, &input_fs_before,
                 &input_fs_after);
   strstr_bounds(lexer_template, REGLEX_MAIN, &main_before, &main_after);
@@ -541,21 +721,16 @@ int main(int argc, char *argv[]) {
     fprintf(out_file, "FILE *reglex_input_fs;\n");
   }
 
-  fprintsl(out_file, lexer_template, declarations_after, token_actions_before);
-
-  while (token_actions != NULL) {
-    fprintf(out_file, "  case %d:\n", token_actions->tag);
-    fprintf(out_file, "    %s\n", token_actions->action.data);
-    fprintf(out_file, "    break;\n");
-    token_actions = token_actions->next;
-  }
-
-  delete_ast_list(tokens);
-  delete_token_action_list(token_actions);
+  fprintsl(out_file, lexer_template, declarations_after, switching_before);
+  print_parser_switching(parser_specs);
+  fprintsl(out_file, lexer_template, switching_after, reject_functions_before);
+  print_reject_functions(parser_specs);
+  delete_parser_specs(parser_specs);
   delete_reg_def_list(defs);
+  parser_specs = NULL;
   defs = NULL;
 
-  fprintsl(out_file, lexer_template, token_actions_after, input_fs_before);
+  fprintsl(out_file, lexer_template, reject_functions_after, input_fs_before);
 
   if (flags & INSTR_EMIT_INPUT_FS_VAR) {
     fprintf(out_file, "reglex_input_fs");
