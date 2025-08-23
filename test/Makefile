@@ -1,28 +1,39 @@
 CC = gcc
 CFLAGS = -Wall -Werror
+LEX = ../reglex
 
 CDFLAGS = -pg -g
 CRFLAGS = -O3
 
 .PHONY: all debug release
-all: lexer
+all: c_lexer html_js_lexer numbers_lexer
 
 debug: CFLAGS += $(CDFLAGS)
-debug: lexer
+debug: c_lexer html_js_lexer numbers_lexer
 release: CFLAGS += $(CRFLAGS)
-release: lexer
+release: c_lexer html_js_lexer numbers_lexer
 
-lexer: lexer.o
+%_lexer: %_lexer.o
 	$(CC) $(CFLAGS) $^ -o $@
-
-%.o: %.c
+	@echo " --- ./test/"$@ "generated"
+	@echo ""
+%_lexer.o: %_lexer.c
 	$(CC) $(CFLAGS) -c -o $@ $<
+%_lexer.c: %.reglex
+	$(LEX) $^ -o $@
 
-lexer.o: lexer.c
+c_lexer: c_lexer.o
+c_lexer.o: c_lexer.c
+c_lexer.c: c.reglex
 
-lexer.c: lexer.reglex
-	../reglex lexer.reglex -o lexer.c
+html_js_lexer: html_js_lexer.o
+html_js_lexer.o: html_js_lexer.c
+html_js_lexer.c: html_js.reglex
+
+numbers_lexer: numbers_lexer.o
+numbers_lexer.o: numbers_lexer.c
+numbers_lexer.c: numbers.reglex
 
 clean:
-	rm -f *.o lexer lexer.c
+	rm -f *.o *_lexer *_lexer.c
 

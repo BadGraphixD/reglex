@@ -13,14 +13,15 @@ To clean the project, run `make clean`.
 
 To test the project, write a lexer specification (with the reglex instruction `emit_main`)
 into the file `test/lexer.reglex` and run `make test` in the root directory. This will
-build the executable `test/lexer`, which reads from `stdin`, tries to divide the input stream
+build the executable `./test/lexer`, which reads from `stdin`, tries to divide the input stream
 into tokens and executes the corresponding code actions.
 
 # How it works
 
-The `reglex` executable expects a valid lexer specification from `stdin` (for the syntax,
-look at the comment in `reglex.c`). It converts the given regular expressions and their code
-actions into c code.
+The `reglex` executable converts a valid lexer specification, which can be passed as a file or via
+`stdin` (for the syntax, look at the comment in `reglex.c` and the example `test/lexer.reglex`;
+for how to use the `reglex` executable, simply call it with the `-h` or `--help` option). It
+converts the given regular expressions and their code actions into c code.
 
 The generated code contains the function `int reglex_parse()`, which parses a stream of chars
 into tokens. It tries to match the longest token possible and if two tokens are of equal length,
@@ -40,6 +41,11 @@ bigger match. Each time a token could be matched, it saves a checkpoint. When th
 can't be matched anymore, it has to backtrack to the last checkpoint. Since all tokens are parsed
 by the same state-machine, we don't need to run the parser over the same chars multiple times.
 Only the chars since the last checkpoint need to be parsed again.
+
+The lexer specification also allows for multiple parsers to be specified in a single `.reglex` file.
+For this to work, each new parser must be named. The first parser does not necessarily need a name.
+During a code action, the function `void reglex_switch_parser(const char *name)` can be called, to
+change the parser. Per default, the first parser in the spec file is chosen in the beginning.
 
 ### Example:
 

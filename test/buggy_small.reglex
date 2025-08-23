@@ -1,0 +1,66 @@
+#include <stdio.h>
+
+void print_lexem();
+
+%%
+
+emit_main
+
+%%
+
+BIN_DIGIT [01]
+OCT_DIGIT [0-7]
+DEC_DIGIT [0-9]
+HEX_DIGIT [0-9a-fA-F]
+
+BIN_LIT 0[bB]{BIN_DIGIT}+
+OCT_LIT 0{OCT_DIGIT}+
+DEC_LIT {DEC_DIGIT}+
+HEX_LIT 0[xX]{HEX_DIGIT}+
+
+POINTGROUP {DEC_DIGIT}\.|\.{DEC_DIGIT}
+
+FLOAT_LIT {DEC_DIGIT}*{POINTGROUP}{DEC_DIGIT}*
+
+STR_LIT "([^"]|\\")*"
+
+CHAR_LIT '([^']|\\')'
+
+NAME [a-zA-Z_][a-zA-Z_0-9]*
+
+WHITESPACE [\n\r\t\s]
+
+MULTILINE_COMMENT /\*([^\*]|(\*+[^\*/]))*\*+/
+SINGLE_LINE_COMMENT //[^\n]*\n
+COMMENT {MULTILINE_COMMENT}|{SINGLE_LINE_COMMENT}
+
+HTML_NORMAL [^<]|\\<
+HTML_NO_WS [^<\n\r\t\s]|\\<
+
+HTML_TEXT {HTML_NO_WS}|{HTML_NO_WS}{HTML_NORMAL}*{HTML_NO_WS}
+
+%%
+
+%{ html %}
+
+<script> %{ reglex_switch_parser("js"); printf("Switching to js\n"); %}
+
+{NAME} %{ printf("name: '%s'\n", reglex_lexem()); %}
+\(|\)|\[|\]|\{|\}|:|;|\.|,|\?|! %{ print_lexem(); %}
+{WHITESPACE} %{%}
+. %{ fprintf(stderr, "Illegal character encountered in js: '%s'", reglex_lexem()); exit(1); %}
+
+%{ js %}
+
+</script> %{ reglex_switch_parser("html"); printf("Switching to html\n"); %}
+
+{NAME} %{ printf("name: '%s'\n", reglex_lexem()); %}
+\(|\)|\[|\]|\{|\}|:|;|\.|,|\?|! %{ print_lexem(); %}
+{WHITESPACE} %{%}
+. %{ fprintf(stderr, "Illegal character encountered in js: '%s'", reglex_lexem()); exit(1); %}
+
+%%
+
+void print_lexem() {
+  printf("%s\n", reglex_lexem());
+}

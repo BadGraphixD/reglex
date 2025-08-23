@@ -94,6 +94,7 @@ typedef struct parser_spec {
   string_t name;
   string_t unique_name;
   bool_t is_default;
+  bool_t is_named;
   int idx;
 } parser_spec_t;
 
@@ -112,6 +113,8 @@ static char *out_file_name = NULL;
 static FILE *out_file = NULL;
 
 static reg_def_list_t *defs = NULL;
+
+static bool_t output_debug_info = 0;
 
 static void delete_reg_def_list(reg_def_list_t *list) {
   while (list != NULL) {
@@ -169,10 +172,11 @@ static int get_next_input_char() {
 }
 
 static void undo_char(int c) {
+  // Note: if '\n' is undone, line counting breaks
   has_undo_char = 1;
   undo_char_ = next_char;
   next_char = c;
-  col--; // TODO: if '\n' is undone, line counting breaks
+  col--;
 }
 
 int peek_next() { return next_char; }
@@ -367,15 +371,26 @@ static int consume_instructions() {
   }
 }
 
-static void consume_ref_defs() {
+static void consume_reg_defs() {
+  if (output_debug_info) {
+    fprintf(out_file, "--- Regular definitions:\n");
+  }
   while (1) {
     consume_whitespace();
     if (try_consume_delimiter()) {
+      if (output_debug_info && defs == NULL) {
+        fprintf(out_file, "None given\n");
+      }
+      fprintf(out_file, "\n");
       return;
     }
     string_t name = consume_name();
     consume_whitespace();
     ast_t ast = consume_regex_expr();
+    if (output_debug_info) {
+      fprintf(out_file, "\nAST of %s:\n", name.data);
+      print_ast_indented(&ast, 1, out_file);
+    }
     reg_def_list_t *new_def = malloc(sizeof(reg_def_list_t));
     new_def->name = name;
     new_def->ast = ast;
@@ -477,12 +492,14 @@ static void print_parser_switching(parser_spec_t *specs) {
   fprintf(out_file,
           "static void reglex_switch_parser(const char *parser_name) {\n");
   while (specs != NULL) {
-    fprintf(out_file,
-            " %s (strcmp(parser_name, \"%s\") == 0) {\n"
-            "    reglex_token_parser_fn = reglex_parse_token_%s;\n"
-            "  }",
-            is_first ? " if" : "else if", specs->name.data,
-            specs->unique_name.data);
+    if (specs->is_named) {
+      fprintf(out_file,
+              " %s (strcmp(parser_name, \"%s\") == 0) {\n"
+              "    reglex_token_parser_fn = reglex_parse_token_%s;\n"
+              "  }",
+              is_first ? " if" : "else if", specs->name.data,
+              specs->unique_name.data);
+    }
     specs = specs->next;
     is_first = 0;
   }
@@ -495,6 +512,16 @@ static void print_token_actions(token_action_list_t *token_actions) {
     fprintf(out_file, "    %s\n", token_actions->action.data);
     fprintf(out_file, "    break;\n");
     token_actions = token_actions->next;
+  }
+}
+
+static void print_token_actions_list_debug_info(token_action_list_t *tal) {
+  while (tal != NULL) {
+    fprintf(out_file, "  Tag: '%d'\n", tal->tag);
+    fprintf(out_file, "  Action: '%s'\n", tal->action.data);
+    fprintf(out_file, "  AST:\n");
+    print_ast_indented(&tal->token, 3, out_file);
+    tal = tal->next;
   }
 }
 
@@ -533,7 +560,10 @@ static void delete_parser_specs(parser_spec_t *specs) {
     parser_spec_t *next = specs->next;
     delete_token_action_list(specs->tal);
     delete_ast_list(specs->ast_list);
-    free(specs->name.data);
+    if (specs->is_named) {
+      free(specs->name.data);
+    }
+    free(specs->unique_name.data);
     free(specs);
     specs = next;
   }
@@ -557,12 +587,14 @@ static void strstr_bounds(const char *haystack, char *needle, int *before,
 
 static struct option OPTIONS_LONG[] = {{"help", no_argument, NULL, 'h'},
                                        {"version", no_argument, NULL, 'v'},
+                                       {"debug", no_argument, NULL, 'd'},
                                        {"output", required_argument, NULL, 'o'},
                                        {NULL, 0, NULL, 0}};
 
 static char *OPTIONS_HELP[] = {
     ['h'] = "print this help list",
     ['v'] = "print program version",
+    ['d'] = "output debug information",
     ['o'] = "set output file name",
 };
 
@@ -589,6 +621,9 @@ static void handle_option(char opt) {
     if (out_file_name[0] == '\0') {
       nac_missing_arg('o');
     }
+    break;
+  case 'd':
+    output_debug_info = 1;
     break;
   }
 }
@@ -637,39 +672,33 @@ int main(int argc, char *argv[]) {
   consume_next();
   consume_c(0);
   int flags = consume_instructions();
-  consume_ref_defs();
+  consume_reg_defs();
 
-  parser_spec_t *parser_specs = NULL;
-
-  // TODO: Something causes serious errors when more than one parser is used
-  //  one parser currently works fine, but adding a second one somehow causes
-  //  both return code 1 (cannot parse input) or a segfault (return code 130)
-  //  Maybe something with the read_ahead stuff???
-  //  At least in principal it works now
+  if (output_debug_info) {
+    fprintf(out_file, " --- Parser spec(s):\n");
+  }
+  parser_spec_t *specs = NULL;
   int parser_idx = 0;
   bool_t c;
   do {
     parser_spec_t *next_specs = malloc(sizeof(parser_spec_t));
-    next_specs->next = parser_specs;
+    next_specs->next = specs;
     next_specs->is_default = parser_idx == 0;
     next_specs->idx = parser_idx;
-    parser_specs = next_specs;
-    bool_t is_named = 0;
-    c = consume_token_actions(&parser_specs->tal, &parser_specs->name,
-                              &is_named);
+    specs = next_specs;
+    c = consume_token_actions(&specs->tal, &specs->name, &specs->is_named);
 
     // Ensure each parser has a unique name
-    if (is_named) {
-      parser_specs->unique_name = create_string(parser_specs->name.data);
-      append_str_to_str(&parser_specs->unique_name, "_named");
+    if (specs->is_named) {
+      specs->unique_name = create_string(specs->name.data);
+      append_str_to_str(&specs->unique_name, "_named");
     } else {
-      parser_specs->unique_name.length =
-          asprintf(&parser_specs->unique_name.data, "unnamed_%d", parser_idx);
+      specs->unique_name.length =
+          asprintf(&specs->unique_name.data, "unnamed_%d", parser_idx);
     }
-    parser_specs->ast_list = to_ast_list(parser_specs->tal);
+    specs->ast_list = to_ast_list(specs->tal);
 
-    automaton_t automaton =
-        convert_ast_list_to_automaton(parser_specs->ast_list);
+    automaton_t automaton = convert_ast_list_to_automaton(specs->ast_list);
     automaton_t dfa = determinize(&automaton);
     automaton_t mdfa = minimize(&dfa);
 
@@ -677,17 +706,29 @@ int main(int argc, char *argv[]) {
       reject("no token expressions may accept an empty string");
     }
 
-    // First parser is always named "default"
     char *parse_token_fn_name;
     asprintf(&parse_token_fn_name, "reglex_parse_token_%s",
-             parser_specs->unique_name.data);
+             specs->unique_name.data);
     char *reject_fn_name;
-    asprintf(&reject_fn_name, "reglex_reject_%s",
-             parser_specs->unique_name.data);
+    asprintf(&reject_fn_name, "reglex_reject_%s", specs->unique_name.data);
 
     print_automaton_to_c_code(mdfa, parse_token_fn_name, "reglex_next",
                               "reglex_accept", reject_fn_name,
                               REGEX2C_ALL_DECL_STATIC, out_file);
+
+    if (output_debug_info) {
+      fprintf(out_file, "New parser spec (name='%s', unique_name='%s'):\n",
+              specs->is_named ? specs->name.data : "<unnamed>",
+              specs->unique_name.data);
+      fprintf(out_file, " Tokens & Actions:\n");
+      print_token_actions_list_debug_info(specs->tal);
+      fprintf(out_file, " NFA:\n");
+      print_automaton(&automaton, out_file);
+      fprintf(out_file, " DFA:\n");
+      print_automaton(&dfa, out_file);
+      fprintf(out_file, " Minimal DFA:\n");
+      print_automaton(&mdfa, out_file);
+    }
 
     free(parse_token_fn_name);
     free(reject_fn_name);
@@ -722,12 +763,12 @@ int main(int argc, char *argv[]) {
   }
 
   fprintsl(out_file, lexer_template, declarations_after, switching_before);
-  print_parser_switching(parser_specs);
+  print_parser_switching(specs);
   fprintsl(out_file, lexer_template, switching_after, reject_functions_before);
-  print_reject_functions(parser_specs);
-  delete_parser_specs(parser_specs);
+  print_reject_functions(specs);
+  delete_parser_specs(specs);
   delete_reg_def_list(defs);
-  parser_specs = NULL;
+  specs = NULL;
   defs = NULL;
 
   fprintsl(out_file, lexer_template, reject_functions_after, input_fs_before);

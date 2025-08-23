@@ -17,7 +17,8 @@ WHITESPACE [\n\r\t\s]+
 
 {INTEGER} %{ printf("Integer: '%s'\n", reglex_lexem()); %}
 {REAL} %{ printf("Real: '%s'\n", reglex_lexem()); %}
-{WHITESPACE} %{  %}
+{WHITESPACE} %{%}
+. %{ fprintf(stderr, "Illegal character encountered: '%s'", reglex_lexem()); exit(1); %}
 
 %%
 

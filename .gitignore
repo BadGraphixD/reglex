@@ -2,7 +2,7 @@
 *.out
 reglex
 
-/test/lexer.c
-/test/lexer
+/test/*_lexer.c
+/test/*_lexer
 
 /lexer_template/lexer_template.c

@@ -34,7 +34,6 @@ regex2c/not_enough_cli/bin/lib.o:
 
 test: reglex
 	@cd test && make
-	@echo "test/lexer generated"
 
 clean:
 	rm -f *.o reglex lexer_template/lexer_template.c
