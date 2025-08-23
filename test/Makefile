@@ -35,5 +35,5 @@ numbers_lexer.o: numbers_lexer.c
 numbers_lexer.c: numbers.reglex
 
 clean:
-	rm -f *.o *_lexer *_lexer.c
+	rm -f *.o *.out *_lexer *_lexer.c
 
