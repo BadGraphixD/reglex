@@ -32,7 +32,7 @@ regex2c/lib.o:
 regex2c/not_enough_cli/bin/lib.o:
 	@cd regex2c/not_enough_cli && make $(LIB_TARGET)
 
-test: reglex
+test: release
 	@cd test && make
 
 clean:

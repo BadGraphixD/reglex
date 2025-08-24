@@ -19,15 +19,9 @@ into tokens and executes the corresponding code actions.
 # How it works
 
 The `reglex` executable converts a valid lexer specification, which can be passed as a file or via
-`stdin` (for the syntax, look at the comment in `reglex.c` and the example `test/lexer.reglex`;
+`stdin` (for the syntax, look at the comment in `reglex.c` and the examples `test/*.reglex`;
 for how to use the `reglex` executable, simply call it with the `-h` or `--help` option). It
 converts the given regular expressions and their code actions into c code.
-
-The generated code contains the function `int reglex_parse()`, which parses a stream of chars
-into tokens. It tries to match the longest token possible and if two tokens are of equal length,
-the one which comes first in the spec is chosen. If no tokens can be matched, the function returns
-`1`. Otherwise, it continues parsing, until `EOF` is reached. If all chars have been consumed
-by tokens, `0` is returned.
 
 The token specs in the spec file are converted into automata, combined into one large automata,
 optimized and then converted into c code. For that, my c library `regex2c` is used. This
@@ -58,8 +52,56 @@ has to backtrack. It then saves the token 'a' and continues parsing at 'b'.
 If we were to use one state-machine per token, the parser would have to backtrack to the beginning
 of the string instead of continuing at 'b'.
 
+# How to use
+
+There are generally two ways to use the generated c file:
+
+- Use the instruction `emit_main` and use the token actions to execute code per token. The generated
+  c file can then simply be compiled into an executable.
+- Use a custom main function, which calls `reglex_parse` or `reglex_parse_token` (see below). Optionally
+  use the instruction `emit_input_fs_var` to further control the input stream of the generated parser.
+
+The generated code contains the following functions:
+
+`int reglex_parse()`
+Parses a stream of chars into tokens. If no tokens can
+be matched, the function returns `1`. Otherwise, it continues parsing, until `EOF` is reached.
+If all chars have been consumed by tokens, `0` is returned.
+
+`void reglex_parse_token()`
+Parses the next token in the input stream. Returns once exactly one token has been parsed or an
+error has occurred. It tries to match the longest token possible and if two tokens are of equal
+length, the one which comes first in the spec is chosen. After this functions has been called,
+the global variable `int reglex_parse_result` contains `-1` if the token has been successfully parsed
+and the input stream contains more chars to be parsed, `0` if the token has been successfully
+parsed, and `EOF` was encountered in the input stream, and `1` if the input stream could not
+be parsed into any token. To get the type of token parsed, a global variable can be used, which
+can be set during the token actions and read after the call to `reglex_parse_token`.
+
+`char *reglex_lexem()`
+After a token has been parsed, this function returns a pointer to the parsed lexem (the string
+of the parsed token). The data behind the pointer may overwritten or become invalid, so it must
+be copied to be used later. This function can also be used inside the token action.
+
+`void reglex_switch_parser(const char *name)`
+This function can be called with a string containing the name of a parser in the spec to switch
+to that parser. Calling the function with any other string is undefined behaviour. This function
+can be used at any time (except while a token is parsed) and even inside a token action. It is
+not possible to switch to an unnamed parser.
+
+`int main()`
+Is only generated when the instruction `emit_main` is used (see below).
+
+And contains the following global variables:
+
+`int reglex_parse_result`
+See `void reglex_parse_token()`.
+
+`FILE *reglex_input_fs`
+Is only generated when the instruction `emit_input_fs_var` is used (see below).
+
 # reglex instructions
 
-- `emit_main`: Instruction to generate a `main` function, which calls `reglex_parse()`.
+- `emit_main`: Instruction to generate a `main` function, which calls `reglex_parse()` and returns its return value.
 - `emit_input_fs_var`: Instruction to generate a global variable `FILE *reglex_input_fs`, from which
   input is read instead of `stdin`. Must be set by external code and can be used to switch files.

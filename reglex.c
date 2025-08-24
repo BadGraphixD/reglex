@@ -490,8 +490,7 @@ static void print_parser_switching(parser_spec_t *specs) {
   fprintf(out_file,
           "static void (*reglex_token_parser_fn)() = reglex_parse_token_%s;\n",
           get_unique_default_name(specs).data);
-  fprintf(out_file,
-          "static void reglex_switch_parser(const char *parser_name) {\n");
+  fprintf(out_file, "void reglex_switch_parser(const char *parser_name) {\n");
   while (specs != NULL) {
     if (specs->is_named) {
       fprintf(out_file,

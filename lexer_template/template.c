@@ -53,16 +53,11 @@ int reglex_accept(int tag) {
   return 0;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-
 #REGLEX_PARSER_SWITCHING
 
-static char *reglex_lexem() { return reglex_lexem_str.data; }
+char *reglex_lexem() { return reglex_lexem_str.data; }
 
-#pragma GCC diagnostic pop
-
-static int reglex_parse_result = -1;
+int reglex_parse_result = -1;
 
 #REGLEX_REJECT_FUNCTIONS
 
@@ -82,11 +77,17 @@ int reglex_next() {
   return c;
 }
 
-int reglex_parse() {
-  while (reglex_parse_result == -1) {
-    reglex_token_parser_fn();
-  }
+int reglex_parse_token() {
+  reglex_token_parser_fn();
   return reglex_parse_result;
+}
+
+int reglex_parse() {
+  int result;
+  do {
+    result = reglex_parse_token();
+  } while (result == -1);
+  return result;
 }
 
 #REGLEX_MAIN
