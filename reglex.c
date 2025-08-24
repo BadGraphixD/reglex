@@ -368,6 +368,7 @@ static int consume_instructions() {
     } else {
       reject("invalid instruction '%s'", name.data);
     }
+    free(name.data);
   }
 }
 
@@ -732,6 +733,8 @@ int main(int argc, char *argv[]) {
 
     free(parse_token_fn_name);
     free(reject_fn_name);
+    parse_token_fn_name = NULL;
+    reject_fn_name = NULL;
 
     delete_automaton(automaton);
     delete_automaton(dfa);
@@ -786,5 +789,12 @@ int main(int argc, char *argv[]) {
   }
 
   consume_c(1);
+
+  if (out_file != NULL && out_file != stdout) {
+    fclose(out_file);
+  }
+  free(in_files);
+  in_files = NULL;
+
   return EXIT_SUCCESS;
 }
