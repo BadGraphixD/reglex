@@ -59,7 +59,7 @@ There are generally two ways to use the generated c file:
 - Use the instruction `emit_main` and use the token actions to execute code per token. The generated
   c file can then simply be compiled into an executable.
 - Use a custom main function, which calls `reglex_parse` or `reglex_parse_token` (see below). Optionally
-  use the instruction `emit_input_fs_var` to further control the input stream of the generated parser.
+  use the function `reglex_set_is` (see below) to further control the input stream of the generated parser.
 
 The generated code contains the following functions:
 
@@ -78,10 +78,25 @@ parsed, and `EOF` was encountered in the input stream, and `1` if the input stre
 be parsed into any token. To get the type of token parsed, a global variable can be used, which
 can be set during the token actions and read after the call to `reglex_parse_token`.
 
-`char *reglex_lexem()`
+`const char *reglex_lexem()`
 After a token has been parsed, this function returns a pointer to the parsed lexem (the string
 of the parsed token). The data behind the pointer may overwritten or become invalid, so it must
 be copied to be used later. This function can also be used inside the token action.
+
+`void reglex_set_is(FILE *is, const char *filename)`
+This function can be called at any time to set the input stream from which to read. Optionally,
+a filename can be set at this point (may be `NULL`), which can be later read with `reglex_filename`.
+
+`const char *reglex_filename()`
+Returns the filename set by `reglex_set_is` or `NULL`.
+
+`int reglex_ln()`
+Returns the line of the first char in the lexem of the last parsed token. Can be used after
+`reglex_parse_token` has been called or during code actions.
+
+`int reglex_col()`
+Returns the column of the first char in the lexem of the last parsed token. Can be used after
+`reglex_parse_token` has been called or during code actions.
 
 `void reglex_switch_parser(const char *name)`
 This function can be called with a string containing the name of a parser in the spec to switch
@@ -97,11 +112,6 @@ And contains the following global variables:
 `int reglex_parse_result`
 See `void reglex_parse_token()`.
 
-`FILE *reglex_input_fs`
-Is only generated when the instruction `emit_input_fs_var` is used (see below).
-
 # reglex instructions
 
 - `emit_main`: Instruction to generate a `main` function, which calls `reglex_parse()` and returns its return value.
-- `emit_input_fs_var`: Instruction to generate a global variable `FILE *reglex_input_fs`, from which
-  input is read instead of `stdin`. Must be set by external code and can be used to switch files.

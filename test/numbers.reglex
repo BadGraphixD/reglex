@@ -15,10 +15,36 @@ WHITESPACE [\n\r\t\s]+
 
 %%
 
-{INTEGER} %{ printf("Integer: '%s'\n", reglex_lexem()); %}
-{REAL} %{ printf("Real: '%s'\n", reglex_lexem()); %}
-{WHITESPACE} %{%}
-. %{ fprintf(stderr, "Illegal character encountered: '%s'", reglex_lexem()); exit(1); %}
+{INTEGER} %{
+  printf(
+    "Integer (%d:%d): '%s'\n",
+    reglex_ln(),
+    reglex_col(),
+    reglex_lexem()
+  );
+%}
+
+{REAL} %{
+  printf(
+    "Real (%d:%d): '%s'\n",
+    reglex_ln(),
+    reglex_col(),
+    reglex_lexem()
+  );
+%}
+
+{WHITESPACE} %{ %}
+
+. %{
+  fprintf(
+    stderr,
+    "Illegal character encountered (%d:%d): '%s'",
+    reglex_ln(),
+    reglex_col(),
+    reglex_lexem()
+  ); 
+  exit(1);
+%}
 
 %%
 

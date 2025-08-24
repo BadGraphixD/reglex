@@ -25,7 +25,6 @@
  * The following reglex instructions exist:
  *
  * emit_main
- * emit_input_fs_var
  *
  * The instructions are separated by whitespace.
  *
@@ -66,12 +65,10 @@
 #include "lexer_template/lexer_template.c"
 
 #define INSTR_EMIT_MAIN 1
-#define INSTR_EMIT_INPUT_FS_VAR 2
 
 #define REGLEX_DECLARATIONS "#REGLEX_DECLARATIONS"
 #define REGLEX_PARSER_SWITCHING "#REGLEX_PARSER_SWITCHING"
 #define REGLEX_REJECT_FUNCTIONS "#REGLEX_REJECT_FUNCTIONS"
-#define REGLEX_INPUT_FS "#REGLEX_INPUT_FS"
 #define REGLEX_MAIN "#REGLEX_MAIN"
 
 typedef struct reg_def_list {
@@ -363,8 +360,6 @@ static int consume_instructions() {
     string_t name = consume_name();
     if (strcmp(name.data, "emit_main") == 0) {
       flags |= INSTR_EMIT_MAIN;
-    } else if (strcmp(name.data, "emit_input_fs_var") == 0) {
-      flags |= INSTR_EMIT_INPUT_FS_VAR;
     } else {
       reject("invalid instruction '%s'", name.data);
     }
@@ -539,9 +534,7 @@ static void print_reject_functions(parser_spec_t *specs) {
                       "    }\n"
                       "    break;\n"
                       "  }\n"
-                      "  reglex_checkpoint_tag = -1;\n"
-                      "  reglex_clear_str(&reglex_lexem_str);\n"
-                      "  reglex_read_ahead_ptr = reglex_read_ahead.length;\n"
+                      "  reglex_reset_to_checkpoint();\n"
                       "}\n");
     specs = specs->next;
   }
@@ -745,7 +738,6 @@ int main(int argc, char *argv[]) {
   int declarations_before, declarations_after;
   int switching_before, switching_after;
   int reject_functions_before, reject_functions_after;
-  int input_fs_before, input_fs_after;
   int main_before, main_after;
 
   strstr_bounds(lexer_template, REGLEX_DECLARATIONS, &declarations_before,
@@ -754,15 +746,9 @@ int main(int argc, char *argv[]) {
                 &switching_after);
   strstr_bounds(lexer_template, REGLEX_REJECT_FUNCTIONS,
                 &reject_functions_before, &reject_functions_after);
-  strstr_bounds(lexer_template, REGLEX_INPUT_FS, &input_fs_before,
-                &input_fs_after);
   strstr_bounds(lexer_template, REGLEX_MAIN, &main_before, &main_after);
 
   fprintsl(out_file, lexer_template, 0, declarations_before);
-
-  if (flags & INSTR_EMIT_INPUT_FS_VAR) {
-    fprintf(out_file, "FILE *reglex_input_fs;\n");
-  }
 
   fprintsl(out_file, lexer_template, declarations_after, switching_before);
   print_parser_switching(specs);
@@ -773,15 +759,7 @@ int main(int argc, char *argv[]) {
   specs = NULL;
   defs = NULL;
 
-  fprintsl(out_file, lexer_template, reject_functions_after, input_fs_before);
-
-  if (flags & INSTR_EMIT_INPUT_FS_VAR) {
-    fprintf(out_file, "reglex_input_fs");
-  } else {
-    fprintf(out_file, "stdin");
-  }
-
-  fprintsl(out_file, lexer_template, input_fs_after, main_before);
+  fprintsl(out_file, lexer_template, reject_functions_after, main_before);
 
   if (flags & INSTR_EMIT_MAIN) {
     fprintf(out_file, "%s", lexer_main);

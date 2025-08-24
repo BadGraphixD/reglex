@@ -10,6 +10,24 @@ typedef struct string {
   size_t length;
 } string_t;
 
+typedef struct location {
+  int ln;
+  int col;
+  char eol;
+} location_t;
+
+static void reglex_increment_loc(location_t *loc, int c) {
+  if (loc->eol) {
+    loc->eol = 0;
+    loc->col = 0;
+    loc->ln++;
+  }
+  if (c == '\n') {
+    loc->eol = 1;
+  }
+  loc->col++;
+}
+
 static void reglex_append_char_to_str(string_t *string, char c) {
   string->length++;
   string->data = realloc(string->data, (string->length + 1) * sizeof(char));
@@ -44,8 +62,13 @@ static string_t reglex_lexem_str = {.data = NULL, .length = 0};
 static string_t reglex_read_ahead = {.data = NULL, .length = 0};
 static int reglex_read_ahead_ptr = 0;
 
+static location_t reglex_curr_loc = {.ln = 1, .col = 0, .eol = 0};
+static location_t reglex_checkpoint_loc;
+static location_t reglex_lexem_start_loc;
+
 int reglex_accept(int tag) {
   reglex_checkpoint_tag = tag;
+  reglex_checkpoint_loc = reglex_curr_loc;
   size_t chars_to_accept = reglex_read_ahead.length - reglex_read_ahead_ptr;
   reglex_append_str_to_str_n(&reglex_lexem_str, &reglex_read_ahead,
                              chars_to_accept);
@@ -55,11 +78,35 @@ int reglex_accept(int tag) {
 
 #REGLEX_PARSER_SWITCHING
 
-char *reglex_lexem() { return reglex_lexem_str.data; }
+const char *reglex_lexem() { return reglex_lexem_str.data; }
 
 int reglex_parse_result = -1;
 
+static void reglex_reset_to_checkpoint() {
+  reglex_checkpoint_tag = -1;
+  reglex_curr_loc = reglex_checkpoint_loc;
+  reglex_clear_str(&reglex_lexem_str);
+  reglex_read_ahead_ptr = reglex_read_ahead.length;
+}
+
+static FILE *reglex_is = NULL;
+static const char *reglex_filename_ = NULL;
+
+void reglex_set_is(FILE *is, const char *filename) {
+  reglex_is = is;
+  reglex_filename_ = filename;
+  reglex_curr_loc.ln = 1;
+  reglex_curr_loc.col = 0;
+  reglex_curr_loc.eol = 0;
+}
+
+const char *reglex_filename() { return reglex_filename_; }
+int reglex_col() { return reglex_lexem_start_loc.col; }
+int reglex_ln() { return reglex_lexem_start_loc.ln; }
+
 #REGLEX_REJECT_FUNCTIONS
+
+static char reglex_just_started_token = 0;
 
 int reglex_next() {
   int c;
@@ -67,17 +114,24 @@ int reglex_next() {
     c = reglex_read_ahead
             .data[reglex_read_ahead.length - reglex_read_ahead_ptr--];
   } else {
-    c = fgetc(
-#REGLEX_INPUT_FS
-    );
+    c = fgetc(reglex_is);
     if (c != EOF) {
       reglex_append_char_to_str(&reglex_read_ahead, c);
     }
+  }
+  reglex_increment_loc(&reglex_curr_loc, c);
+  if (reglex_just_started_token) {
+    reglex_just_started_token = 0;
+    reglex_lexem_start_loc = reglex_curr_loc;
   }
   return c;
 }
 
 int reglex_parse_token() {
+  if (reglex_is == NULL) {
+    reglex_is = stdin;
+  }
+  reglex_just_started_token = 1;
   reglex_token_parser_fn();
   return reglex_parse_result;
 }
